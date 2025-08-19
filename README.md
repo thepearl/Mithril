@@ -328,6 +328,7 @@ Mithril is available under the MIT license. See the LICENSE file for more info.
 ## 🙏 Acknowledgments
 
 - Inspired by CSS animation libraries like Animate.css and React.
+- Inspiration from SwiftUI community: https://github.com/dankinsoid/VDAnimation
 - Built with ❤️ for the SwiftUI community
 
 ---
