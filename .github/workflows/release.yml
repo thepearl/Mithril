@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Create Release
+    runs-on: macos-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Setup Ruby
+      uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: 3.0
+        bundler-cache: true
+    
+    - name: Install Fastlane
+      run: gem install fastlane
+    
+    - name: Validate Swift Package
+      run: swift package resolve && swift build
+    
+    - name: Run Tests
+      run: |
+        set -o pipefail
+        xcodebuild clean build test \
+          -scheme Mithril \
+          -destination "platform=iOS Simulator,name=iPhone 15,OS=17.0" \
+          CODE_SIGN_IDENTITY="" \
+          CODE_SIGNING_REQUIRED=NO \
+          ONLY_ACTIVE_ARCH=NO \
+          | xcpretty
+    
+    - name: Generate Release Notes
+      id: release_notes
+      run: |
+        # Extract version from tag
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        
+        # Generate changelog since last tag
+        LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+        if [ -n "$LAST_TAG" ]; then
+          CHANGELOG=$(git log --pretty=format:"- %s" $LAST_TAG..HEAD)
+        else
+          CHANGELOG=$(git log --pretty=format:"- %s")
+        fi
+        
+        # Save changelog to file
+        echo "$CHANGELOG" > CHANGELOG.md
+        echo "CHANGELOG_FILE=CHANGELOG.md" >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: Release ${{ steps.release_notes.outputs.VERSION }}
+        body_path: ${{ steps.release_notes.outputs.CHANGELOG_FILE }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Run Fastlane Release
+      run: fastlane ios release
+      env:
+        FASTLANE_SKIP_UPDATE_CHECK: true
+        FASTLANE_HIDE_CHANGELOG: true
+        VERSION: ${{ steps.release_notes.outputs.VERSION }}

@@ -66,6 +66,7 @@ struct AnimationModifier: ViewModifier {
         case .parallelGroup(let parallelSteps):
             executeParallelSteps(parallelSteps, completion: completion)
         default:
+            assertionFailure("Unhandled AnimationStep type in applySpecialAnimationStep: \(step)")
             completion()
         }
     }
@@ -84,7 +85,7 @@ struct AnimationModifier: ViewModifier {
                 animationState.opacity = opacity
             }
         default:
-            break
+            assertionFailure("Unhandled AnimationStep type in applyFadeAnimation: \(step)")
         }
         
         let duration = extractDuration(from: step)
@@ -105,7 +106,7 @@ struct AnimationModifier: ViewModifier {
                 animationState.scale = to
             }
         default:
-            break
+            assertionFailure("Unhandled AnimationStep type in applyScaleAnimation: \(step)")
         }
         
         let duration = self.extractDuration(from: step)
@@ -128,7 +129,7 @@ struct AnimationModifier: ViewModifier {
                 animationState.offset = finalOffset
             }
         default:
-            break
+            assertionFailure("Unhandled AnimationStep type in applySlideAnimation: \(step)")
         }
         
         let duration = extractDuration(from: step)
@@ -139,7 +140,7 @@ struct AnimationModifier: ViewModifier {
 }
 
 private extension AnimationModifier {
-    func applyMoveAnimation(_ step: AnimationStep, completion: @escaping () -> Void) {
+    private func applyMoveAnimation(_ step: AnimationStep, completion: @escaping () -> Void) {
         switch step {
         case let .moveTo(x, y, duration):
             withAnimation(.easeInOut(duration: duration)) {
@@ -160,16 +161,21 @@ private extension AnimationModifier {
                 }
             }
         default:
-            break
+            assertionFailure("Unhandled AnimationStep type in applyMoveAnimation: \(step)")
         }
         
         let duration = extractDuration(from: step)
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+        // Only schedule completion if duration > 0 to avoid duplicate calls
+        if duration > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+                completion()
+            }
+        } else {
             completion()
         }
     }
     
-    func applyRotationAnimation(_ step: AnimationStep, completion: @escaping () -> Void) {
+    private func applyRotationAnimation(_ step: AnimationStep, completion: @escaping () -> Void) {
         switch step {
         case let .rotate(angle, duration):
             if duration == 0 {
@@ -191,16 +197,21 @@ private extension AnimationModifier {
             }
             return
         default:
-            break
+            assertionFailure("Unhandled AnimationStep type in applyRotationAnimation: \(step)")
         }
         
         let duration = extractDuration(from: step)
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+        // Only schedule completion if duration > 0 to avoid duplicate calls
+        if duration > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+                completion()
+            }
+        } else {
             completion()
         }
     }
     
-    func applySpringAnimation(type: SpringType, duration: TimeInterval, completion: @escaping () -> Void) {
+    private func applySpringAnimation(type: SpringType, duration: TimeInterval, completion: @escaping () -> Void) {
         withAnimation(type.animation) {
             animationState.scale = 1.1
         }
@@ -212,7 +223,7 @@ private extension AnimationModifier {
         }
     }
     
-    func applyPulseAnimation(scale: CGFloat, duration: TimeInterval, completion: @escaping () -> Void) {
+    private func applyPulseAnimation(scale: CGFloat, duration: TimeInterval, completion: @escaping () -> Void) {
         withAnimation(.easeInOut(duration: duration / 2).repeatCount(2, autoreverses: true)) {
             animationState.scale = scale
         }
@@ -221,73 +232,87 @@ private extension AnimationModifier {
         }
     }
     
-    func handleRepeat(mode: RepeatMode, completion: @escaping () -> Void) {
+    private func handleRepeat(mode: RepeatMode, completion: @escaping () -> Void) {
         switch mode {
         case .once:
             completion()
-            
         case .forever:
-            // Reset animation state and restart from beginning
+            handleForeverRepeat()
+        case .times(let count):
+            handleTimesRepeat(count: count, completion: completion)
+        case .duration(let duration):
+            handleDurationRepeat(duration: duration, completion: completion)
+        case .until(let condition):
+            handleConditionalRepeat(condition: condition, completion: completion)
+        }
+    }
+    
+    private func handleForeverRepeat() {
+        resetAnimationState()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.executeAnimations()
+        }
+    }
+    
+    private func handleTimesRepeat(count: Int, completion: @escaping () -> Void) {
+        if repeatCount < count {
+            repeatCount += 1
             resetAnimationState()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 self.executeAnimations()
             }
-            
-        case .times(let count):
-            // Implement times repeat - track how many times we've repeated
-            if repeatCount < count {
-                repeatCount += 1
-                // Reset animation state and restart
-                resetAnimationState()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.executeAnimations()
-                }
-            } else {
-                // Reset counter and complete
-                repeatCount = 0
-                completion()
-            }
-        case .duration(let duration):
-            // Implement duration repeat - repeat for a specific time duration
-            let now = Date()
-            if repeatStartTime == nil {
-                repeatStartTime = now
-            }
-            let elapsed = now.timeIntervalSince(repeatStartTime ?? now)
-            if elapsed < duration {
-                // Reset animation state and restart
-                resetAnimationState()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.executeAnimations()
-                }
-            } else {
-                repeatStartTime = nil
-                completion()
-            }
-            
-        case .until(let condition):
-            // Implement conditional repeat - repeat until condition is met
-            if !condition() {
-                // Condition not met, continue repeating
-                resetAnimationState()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    self.executeAnimations()
-                }
-            } else {
-                // Condition met, complete the animation
-                completion()
-            }
+        } else {
+            repeatCount = 0
+            completion()
         }
     }
     
-    func resetAnimationState() {
+    private func handleDurationRepeat(duration: TimeInterval, completion: @escaping () -> Void) {
+        let now = Date()
+        if repeatStartTime == nil {
+            repeatStartTime = now
+        }
+        
+        guard let startTime = repeatStartTime else {
+            repeatStartTime = now
+            resetAnimationState()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.executeAnimations()
+            }
+            return
+        }
+        
+        let elapsed = now.timeIntervalSince(startTime)
+        if elapsed < duration {
+            resetAnimationState()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.executeAnimations()
+            }
+        } else {
+            repeatStartTime = nil
+            completion()
+        }
+    }
+    
+    private func handleConditionalRepeat(condition: @escaping () -> Bool, completion: @escaping () -> Void) {
+        if !condition() {
+            resetAnimationState()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.executeAnimations()
+            }
+        } else {
+            completion()
+        }
+    }
+    
+    private func resetAnimationState() {
         animationState.opacity = 1.0
         animationState.scale = 1.0
         animationState.offset = .zero
         animationState.rotation = .zero
     }
     
-    func executeParallelSteps(_ steps: [AnimationStep], completion: @escaping () -> Void) {
+    private func executeParallelSteps(_ steps: [AnimationStep], completion: @escaping () -> Void) {
         guard !steps.isEmpty else {
             completion()
             return
@@ -306,7 +331,7 @@ private extension AnimationModifier {
             completion()
         }
     }
-    func executeShakeAnimation(direction: ShakeDirection, intensity: CGFloat, duration: TimeInterval, completion: @escaping () -> Void) {
+    private func executeShakeAnimation(direction: ShakeDirection, intensity: CGFloat, duration: TimeInterval, completion: @escaping () -> Void) {
         let steps = 8
         let stepDuration = duration / Double(steps)
         
@@ -332,13 +357,13 @@ private extension AnimationModifier {
         shakeStep(0)
     }
     
-    func executeAnimations() {
+    private func executeAnimations() {
         guard !steps.isEmpty else { return }
         isAnimating = true
         executeStep(at: 0)
     }
     
-    func executeStep(at index: Int) {
+    private func executeStep(at index: Int) {
         guard index < steps.count else {
             isAnimating = false
             return
