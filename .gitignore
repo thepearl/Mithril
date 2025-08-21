@@ -105,3 +105,10 @@ iOSInjectionProject/
 
 # Log files
 *.log
+
+# Bundle and vendor directories
+.bundle/
+vendor/
+
+# Generated changelog
+CHANGELOG.md
