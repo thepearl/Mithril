@@ -18,7 +18,6 @@ struct AnimationModifier: ViewModifier {
     @State private var animationState = AnimationState()
     @State private var repeatCount = 0
     @State private var repeatStartTime: Date?
-    
     func body(content: Content) -> some View {
         content
             .modifier(AnimationStateModifier(state: animationState))
@@ -27,84 +26,126 @@ struct AnimationModifier: ViewModifier {
             }
     }
     
-    private func executeAnimations() {
-        guard !steps.isEmpty else { return }
-        isAnimating = true
-        executeStep(at: 0)
-    }
-    
-    private func executeStep(at index: Int) {
-        guard index < steps.count else {
-            isAnimating = false
-            return
-        }
-        
-        let step = steps[index]
-        applyAnimationStep(step) {
-            executeStep(at: index + 1)
-        }
-    }
-    
     private func applyAnimationStep(_ step: AnimationStep, completion: @escaping () -> Void) {
+        switch step {
+        case .fadeIn, .fadeOut, .fadeTo:
+            applyFadeAnimation(step, completion: completion)
+        case .scaleUp, .scaleDown, .scaleFrom:
+            applyScaleAnimation(step, completion: completion)
+        case .moveTo, .moveBy:
+            applyMoveAnimation(step, completion: completion)
+        case .rotate, .spin:
+            applyRotationAnimation(step, completion: completion)
+        case .slideIn, .slideOut:
+            applySlideAnimation(step, completion: completion)
+        default:
+            applySpecialAnimationStep(step, completion: completion)
+        }
+    }
+    private func applySpecialAnimationStep(_ step: AnimationStep, completion: @escaping () -> Void) {
+        switch step {
+        case let .spring(type, duration):
+            applySpringAnimation(type: type, duration: duration, completion: completion)
+        case let .shake(direction, intensity, duration):
+            executeShakeAnimation(
+                direction: direction,
+                intensity: intensity,
+                duration: duration,
+                completion: completion
+            )
+        case let .pulse(scale, duration):
+            applyPulseAnimation(scale: scale, duration: duration, completion: completion)
+        case .delay(let duration):
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+                completion()
+            }
+        case .loop(let mode):
+            handleRepeat(mode: mode, completion: completion)
+        case .custom:
+            completion()
+        case .parallelGroup(let parallelSteps):
+            executeParallelSteps(parallelSteps, completion: completion)
+        default:
+            completion()
+        }
+    }
+    private func applyFadeAnimation(_ step: AnimationStep, completion: @escaping () -> Void) {
         switch step {
         case .fadeIn(let duration):
             withAnimation(.easeInOut(duration: duration)) {
                 animationState.opacity = 1.0
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
         case .fadeOut(let duration):
             withAnimation(.easeInOut(duration: duration)) {
                 animationState.opacity = 0.0
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .fadeTo(let opacity, let duration):
+        case let .fadeTo(opacity, duration):
             withAnimation(.easeInOut(duration: duration)) {
                 animationState.opacity = opacity
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .scaleUp(let scale, let duration):
+        default:
+            break
+        }
+        
+        let duration = extractDuration(from: step)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            completion()
+        }
+    }
+    
+    private func applyScaleAnimation(_ step: AnimationStep, completion: @escaping () -> Void) {
+        switch step {
+        case let .scaleUp(scale, duration), let .scaleDown(scale, duration):
             withAnimation(.easeInOut(duration: duration)) {
                 animationState.scale = scale
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .scaleDown(let scale, let duration):
-            withAnimation(.easeInOut(duration: duration)) {
-                animationState.scale = scale
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .scaleFrom(let from, let to, let duration):
+        case let .scaleFrom(from, to, duration):
             animationState.scale = from
             withAnimation(.easeInOut(duration: duration)) {
                 animationState.scale = to
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
+        default:
+            break
+        }
+        
+        let duration = self.extractDuration(from: step)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            completion()
+        }
+    }
+
+    private func applySlideAnimation(_ step: AnimationStep, completion: @escaping () -> Void) {
+        switch step {
+        case let .slideIn(direction, distance, duration):
+            let initialOffset = offsetForSlideDirection(direction, distance: distance)
+            animationState.offset = initialOffset
+            withAnimation(.easeOut(duration: duration)) {
+                animationState.offset = .zero
             }
-            
-        case .moveTo(let x, let y, let duration):
+        case let .slideOut(direction, distance, duration):
+            let finalOffset = offsetForSlideDirection(direction, distance: distance)
+            withAnimation(.easeIn(duration: duration)) {
+                animationState.offset = finalOffset
+            }
+        default:
+            break
+        }
+        
+        let duration = extractDuration(from: step)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            completion()
+        }
+    }
+}
+
+private extension AnimationModifier {
+    func applyMoveAnimation(_ step: AnimationStep, completion: @escaping () -> Void) {
+        switch step {
+        case let .moveTo(x, y, duration):
             withAnimation(.easeInOut(duration: duration)) {
                 animationState.offset = CGSize(width: x, height: y)
             }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .moveBy(let x, let y, let duration):
+        case let .moveBy(x, y, duration):
             let newOffset = CGSize(
                 width: animationState.offset.width + x,
                 height: animationState.offset.height + y
@@ -112,28 +153,34 @@ struct AnimationModifier: ViewModifier {
             if duration == 0 {
                 animationState.offset = newOffset
                 completion()
+                return
             } else {
                 withAnimation(.easeInOut(duration: duration)) {
                     animationState.offset = newOffset
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                    completion()
-                }
             }
-            
-        case .rotate(let angle, let duration):
+        default:
+            break
+        }
+        
+        let duration = extractDuration(from: step)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            completion()
+        }
+    }
+    
+    func applyRotationAnimation(_ step: AnimationStep, completion: @escaping () -> Void) {
+        switch step {
+        case let .rotate(angle, duration):
             if duration == 0 {
                 animationState.rotation = angle
                 completion()
+                return
             } else {
                 withAnimation(.easeInOut(duration: duration)) {
                     animationState.rotation = angle
                 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                    completion()
-                }
             }
-            
         case .spin(let duration):
             withAnimation(.linear(duration: duration)) {
                 animationState.rotation = .degrees(360)
@@ -142,89 +189,39 @@ struct AnimationModifier: ViewModifier {
                 animationState.rotation = .degrees(0)
                 completion()
             }
-            
-        case .slideIn(let direction, let distance, let duration):
-            let initialOffset = offsetForSlideDirection(direction, distance: distance)
-            animationState.offset = initialOffset
-            withAnimation(.easeOut(duration: duration)) {
-                animationState.offset = .zero
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .slideOut(let direction, let distance, let duration):
-            let finalOffset = offsetForSlideDirection(direction, distance: distance)
-            withAnimation(.easeIn(duration: duration)) {
-                animationState.offset = finalOffset
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .spring(let type, let duration):
-            withAnimation(type.animation) {
-                animationState.scale = 1.1
-            }
-            withAnimation(type.animation.delay(duration * 0.5)) {
-                animationState.scale = 1.0
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .shake(let direction, let intensity, let duration):
-            executeShakeAnimation(direction: direction, intensity: intensity, duration: duration, completion: completion)
-            
-        case .pulse(let scale, let duration):
-            withAnimation(.easeInOut(duration: duration / 2).repeatCount(2, autoreverses: true)) {
-                animationState.scale = scale
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .delay(let duration):
-            DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-                completion()
-            }
-            
-        case .loop(let mode):
-            handleRepeat(mode: mode, completion: completion)
-            
-        case .custom(let transform):
-            // Apply custom transformation to the view
-            // The transform function should handle its own animation timing
-            // and will be applied through the AnimationBuilder's custom method
+            return
+        default:
+            break
+        }
+        
+        let duration = extractDuration(from: step)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
             completion()
-            
-        case .parallelGroup(let parallelSteps):
-            executeParallelSteps(parallelSteps, completion: completion)
         }
     }
     
-    private func offsetForSlideDirection(_ direction: SlideDirection, distance: CGFloat) -> CGSize {
-        switch direction {
-        case .up:
-            return CGSize(width: 0, height: -distance)
-        case .down:
-            return CGSize(width: 0, height: distance)
-        case .left:
-            return CGSize(width: -distance, height: 0)
-        case .right:
-            return CGSize(width: distance, height: 0)
-        case .topLeading:
-            return CGSize(width: -distance, height: -distance)
-        case .topTrailing:
-            return CGSize(width: distance, height: -distance)
-        case .bottomLeading:
-            return CGSize(width: -distance, height: distance)
-        case .bottomTrailing:
-            return CGSize(width: distance, height: distance)
+    func applySpringAnimation(type: SpringType, duration: TimeInterval, completion: @escaping () -> Void) {
+        withAnimation(type.animation) {
+            animationState.scale = 1.1
+        }
+        withAnimation(type.animation.delay(duration * 0.5)) {
+            animationState.scale = 1.0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            completion()
         }
     }
     
-    private func handleRepeat(mode: RepeatMode, completion: @escaping () -> Void) {
+    func applyPulseAnimation(scale: CGFloat, duration: TimeInterval, completion: @escaping () -> Void) {
+        withAnimation(.easeInOut(duration: duration / 2).repeatCount(2, autoreverses: true)) {
+            animationState.scale = scale
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            completion()
+        }
+    }
+    
+    func handleRepeat(mode: RepeatMode, completion: @escaping () -> Void) {
         switch mode {
         case .once:
             completion()
@@ -250,15 +247,13 @@ struct AnimationModifier: ViewModifier {
                 repeatCount = 0
                 completion()
             }
-            
         case .duration(let duration):
             // Implement duration repeat - repeat for a specific time duration
             let now = Date()
             if repeatStartTime == nil {
                 repeatStartTime = now
             }
-            
-            let elapsed = now.timeIntervalSince(repeatStartTime!)
+            let elapsed = now.timeIntervalSince(repeatStartTime ?? now)
             if elapsed < duration {
                 // Reset animation state and restart
                 resetAnimationState()
@@ -266,7 +261,6 @@ struct AnimationModifier: ViewModifier {
                     self.executeAnimations()
                 }
             } else {
-                // Reset start time and complete
                 repeatStartTime = nil
                 completion()
             }
@@ -286,14 +280,14 @@ struct AnimationModifier: ViewModifier {
         }
     }
     
-    private func resetAnimationState() {
+    func resetAnimationState() {
         animationState.opacity = 1.0
         animationState.scale = 1.0
         animationState.offset = .zero
         animationState.rotation = .zero
     }
     
-    private func executeParallelSteps(_ steps: [AnimationStep], completion: @escaping () -> Void) {
+    func executeParallelSteps(_ steps: [AnimationStep], completion: @escaping () -> Void) {
         guard !steps.isEmpty else {
             completion()
             return
@@ -312,8 +306,7 @@ struct AnimationModifier: ViewModifier {
             completion()
         }
     }
-    
-    private func executeShakeAnimation(direction: ShakeDirection, intensity: CGFloat, duration: TimeInterval, completion: @escaping () -> Void) {
+    func executeShakeAnimation(direction: ShakeDirection, intensity: CGFloat, duration: TimeInterval, completion: @escaping () -> Void) {
         let steps = 8
         let stepDuration = duration / Double(steps)
         
@@ -328,7 +321,6 @@ struct AnimationModifier: ViewModifier {
             let amplitude = intensity * (1.0 - progress) // Decay over time
             let randomX = direction == .vertical ? 0 : CGFloat.random(in: -amplitude...amplitude)
             let randomY = direction == .horizontal ? 0 : CGFloat.random(in: -amplitude...amplitude)
-            
             withAnimation(.easeInOut(duration: stepDuration)) {
                 animationState.offset = CGSize(width: randomX, height: randomY)
             }
@@ -337,32 +329,24 @@ struct AnimationModifier: ViewModifier {
                 shakeStep(step + 1)
             }
         }
-        
         shakeStep(0)
     }
-}
-
-// MARK: - Animation State
-
-/// Holds the current state of all animation properties
-class AnimationState: ObservableObject {
-    @Published var opacity: Double = 1.0
-    @Published var scale: CGFloat = 1.0
-    @Published var offset: CGSize = .zero
-    @Published var rotation: Angle = .zero
-}
-
-// MARK: - Animation State Modifier
-
-/// Applies the animation state to a view
-struct AnimationStateModifier: ViewModifier {
-    @ObservedObject var state: AnimationState
     
-    func body(content: Content) -> some View {
-        content
-            .opacity(state.opacity)
-            .scaleEffect(state.scale)
-            .offset(state.offset)
-            .rotationEffect(state.rotation)
+    func executeAnimations() {
+        guard !steps.isEmpty else { return }
+        isAnimating = true
+        executeStep(at: 0)
+    }
+    
+    func executeStep(at index: Int) {
+        guard index < steps.count else {
+            isAnimating = false
+            return
+        }
+        
+        let step = steps[index]
+        applyAnimationStep(step) {
+            executeStep(at: index + 1)
+        }
     }
 }
