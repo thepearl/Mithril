@@ -1,0 +1,110 @@
+# This file contains the fastlane.tools configuration
+# You can find the documentation at https://docs.fastlane.tools
+#
+# For a list of all available actions, check out
+#
+#     https://docs.fastlane.tools/actions
+#
+# For a list of all available plugins, check out
+#
+#     https://docs.fastlane.tools/plugins/available-plugins
+#
+
+# Uncomment the line if you want fastlane to automatically update itself
+# update_fastlane
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Run CI tasks"
+  lane :ci do
+    # Run SwiftLint
+    swiftlint(
+      mode: :lint,
+      strict: true,
+      raise_if_swiftlint_error: true
+    )
+    
+    # Build and test the Swift package
+    sh("cd .. && swift package resolve")
+    sh("cd .. && swift build")
+    sh("cd .. && swift test")
+    
+    UI.success("✅ CI tasks completed successfully!")
+  end
+  
+  desc "Prepare and create a new release"
+  lane :release do
+    # Ensure working directory is clean
+    ensure_git_status_clean
+    
+    # Get version from environment or prompt
+    version = ENV["VERSION"] || UI.input("Enter version number (e.g., 1.0.0): ")
+    
+    # Validate version format
+    unless version.match(/^\d+\.\d+\.\d+$/)
+      UI.user_error!("❌ Invalid version format. Use semantic versioning (e.g., 1.0.0)")
+    end
+    
+    # Update version in Package.swift if needed
+    # Note: Swift packages don't typically have version numbers in Package.swift
+    # but you can add custom logic here if needed
+    
+    # Run tests before release
+    ci
+    
+    # Create git tag
+    add_git_tag(
+      tag: "v#{version}",
+      message: "Release version #{version}"
+    )
+    
+    # Push tag to remote
+    push_git_tags
+    
+    UI.success("🚀 Release #{version} created successfully!")
+    UI.message("GitHub Actions will automatically create the GitHub release.")
+  end
+  
+  desc "Run tests on all platforms"
+  lane :test_all_platforms do
+    platforms = [
+      "iOS Simulator,name=iPhone 15,OS=17.0",
+      "macOS",
+      "watchOS Simulator,name=Apple Watch Series 9 (45mm),OS=10.0",
+      "tvOS Simulator,name=Apple TV,OS=17.0"
+    ]
+    
+    platforms.each do |destination|
+      UI.message("🧪 Testing on #{destination}")
+      
+      sh(
+        "cd .. && xcodebuild clean build test " +
+        "-scheme Mithril " +
+        "-destination '#{destination}' " +
+        "CODE_SIGN_IDENTITY='' " +
+        "CODE_SIGNING_REQUIRED=NO " +
+        "ONLY_ACTIVE_ARCH=NO"
+      )
+    end
+    
+    UI.success("✅ All platform tests passed!")
+  end
+  
+  desc "Lint code with SwiftLint"
+  lane :lint do
+    swiftlint(
+      mode: :lint,
+      strict: true,
+      raise_if_swiftlint_error: true
+    )
+  end
+  
+  desc "Auto-fix SwiftLint issues"
+  lane :lint_fix do
+    swiftlint(
+      mode: :autocorrect,
+      strict: false
+    )
+  end
+end

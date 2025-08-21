@@ -19,12 +19,12 @@ public protocol Animatable: View {
 
 // MARK: - View Extension
 
-extension View {
-    public func mithril(_ preset: AnimationPreset? = nil) -> AnimationBuilder<Self> {
+public extension View {
+    func mithril(_ preset: AnimationPreset? = nil) -> AnimationBuilder<Self> {
         return AnimationBuilder(content: self, preset: preset)
     }
     
-    public func mithril() -> AnimationBuilder<Self> {
+    func mithril() -> AnimationBuilder<Self> {
         return AnimationBuilder(content: self, preset: nil)
     }
 }
@@ -57,25 +57,25 @@ public struct AnimationBuilder<Content: View> {
 
 // MARK: - Animation Sequencing
 
-extension AnimationBuilder {
+public extension AnimationBuilder {
     /// Execute next animation after current one completes
-    public func then() -> Self {
+    func then() -> Self {
         return AnimationBuilder(content: content, steps: steps, currentGroup: .sequential)
     }
     
     /// Execute next animation in parallel with current one
-    public func and() -> Self {
+    func and() -> Self {
         return AnimationBuilder(content: content, steps: steps, currentGroup: .parallel)
     }
     
     /// Add delay before next animation
-    public func delay(_ duration: TimeInterval) -> Self {
+    func delay(_ duration: TimeInterval) -> Self {
         let delayStep = AnimationStep.delay(duration)
         return addStep(delayStep)
     }
     
     /// Repeat animation with specified mode
-    public func loop(_ mode: RepeatMode) -> Self {
+    func loop(_ mode: RepeatMode) -> Self {
         let repeatStep = AnimationStep.loop(mode)
         return addStep(repeatStep)
     }
@@ -126,7 +126,7 @@ public enum RepeatMode {
     case forever
     case times(Int)
     case duration(TimeInterval)
-    case until(() -> Bool)
+    case until(@autoclosure () -> Bool)
 }
 
 /// Individual animation step
@@ -181,7 +181,7 @@ public enum SpringType {
             return .spring(response: 0.5, dampingFraction: 0.5)
         case .wobbly:
             return .spring(response: 0.8, dampingFraction: 0.3)
-        case .custom(let tension, let friction):
+        case let .custom(tension, friction):
             return .spring(response: tension, dampingFraction: friction)
         }
     }

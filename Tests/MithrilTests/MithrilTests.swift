@@ -10,7 +10,6 @@ import SwiftUI
 @testable import Mithril
 
 final class MithrilTests: XCTestCase {
-    
     func testAnimatableProtocol() {
         // Test that View conforms to Animatable
         let view = Text("Test")
