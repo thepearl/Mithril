@@ -1,4 +1,4 @@
-name: Self-Hosted CI - iOS Only
+name: CI Workflow - test + lint
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
     branches: [ master, develop ]
 
 jobs:
-  ios-tests:
-    name: iOS Tests on Self-Hosted Runner
+  swift-tests:
+    name: Swift Package Tests on Self-Hosted Runner
     runs-on: self-hosted
     
     steps:
@@ -65,7 +65,7 @@ jobs:
   release:
     name: Create Release
     runs-on: self-hosted
-    needs: ios-tests
+    needs: swift-tests
     if: github.ref == 'refs/heads/master' && github.event_name == 'push'
     
     steps:
