@@ -21,7 +21,7 @@ For _fastlane_ installation instructions, see [Installing _fastlane_](https://do
 [bundle exec] fastlane ios ci
 ```
 
-Run CI tasks
+Run CI tasks for iOS (optimized for self-hosted runners)
 
 ### ios release
 
@@ -31,13 +31,13 @@ Run CI tasks
 
 Prepare and create a new release
 
-### ios test_all_platforms
+### ios test_ios
 
 ```sh
-[bundle exec] fastlane ios test_all_platforms
+[bundle exec] fastlane ios test_ios
 ```
 
-Run tests on all platforms
+Run Swift Package Manager tests
 
 ### ios lint
 
