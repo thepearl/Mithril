@@ -59,8 +59,9 @@ jobs:
         name: test-results
         path: |
           fastlane/report.xml
-          fastlane/test_output/
+          fastlane/test_output/**
         retention-days: 30
+        if-no-files-found: warn
 
   release:
     name: Create Release
