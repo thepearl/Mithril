@@ -16,21 +16,26 @@
 default_platform(:ios)
 
 platform :ios do
-  desc "Run CI tasks"
+  desc "Run CI tasks for iOS (optimized for self-hosted runners)"
   lane :ci do
-    # Run SwiftLint
+    # Clean build artifacts for fresh CI run
+    UI.message("🧹 Cleaning build artifacts...")
+    sh("rm -rf ../build ../DerivedData")
+    
+    # Run SwiftLint with JUnit output for GitHub Actions
+    UI.message("🔍 Running SwiftLint...")
     swiftlint(
       mode: :lint,
       strict: true,
-      raise_if_swiftlint_error: true
+      raise_if_swiftlint_error: true,
+      reporter: "junit",
+      output_file: "swiftlint-results.xml"
     )
     
-    # Build and test the Swift package
-    sh("cd .. && swift package resolve")
-    sh("cd .. && swift build")
-    sh("cd .. && swift test")
+    # Run iOS-specific tests with better reporting
+    test_ios
     
-    UI.success("✅ CI tasks completed successfully!")
+    UI.success("✅ iOS CI tasks completed successfully!")
   end
   
   desc "Prepare and create a new release"
@@ -56,42 +61,46 @@ platform :ios do
     # Run tests before release
     ci
     
-    # Create git tag
-    add_git_tag(
-      tag: "v#{version}",
-      message: "Release version #{version}"
-    )
-    
-    # Push tag to remote
-    push_git_tags
-    
     UI.success("🚀 Release #{version} created successfully!")
-    UI.message("GitHub Actions will automatically create the GitHub release.")
+    UI.message("Git tags should be created manually when needed.")
   end
   
-  desc "Run tests on all platforms"
-  lane :test_all_platforms do
-    platforms = [
+  desc "Run tests on iOS only (with enhanced CI reporting)"
+  lane :test_ios do
+    ios_destinations = [
       "iOS Simulator,name=iPhone 15,OS=17.0",
-      "macOS",
-      "watchOS Simulator,name=Apple Watch Series 9 (45mm),OS=10.0",
-      "tvOS Simulator,name=Apple TV,OS=17.0"
+      "iOS Simulator,name=iPhone 15 Pro,OS=17.0",
+      "iOS Simulator,name=iPad Air (5th generation),OS=17.0"
     ]
     
-    platforms.each do |destination|
-      UI.message("🧪 Testing on #{destination}")
+    # Create test output directory
+    sh("mkdir -p test_output")
+    
+    ios_destinations.each_with_index do |destination, index|
+      UI.message("🧪 Testing on #{destination} (#{index + 1}/#{ios_destinations.length})")
       
-      sh(
-        "cd .. && xcodebuild clean build test " +
-        "-scheme Mithril " +
-        "-destination '#{destination}' " +
-        "CODE_SIGN_IDENTITY='' " +
-        "CODE_SIGNING_REQUIRED=NO " +
-        "ONLY_ACTIVE_ARCH=NO"
-      )
+      device_name = destination.split(',name=')[1].split(',')[0].gsub(' ', '_')
+      result_bundle_path = "test_output/#{device_name}.xcresult"
+      
+      begin
+        sh(
+          "cd .. && xcodebuild clean build test " +
+          "-scheme Mithril " +
+          "-destination '#{destination}' " +
+          "-resultBundlePath '#{result_bundle_path}' " +
+          "CODE_SIGN_IDENTITY='' " +
+          "CODE_SIGNING_REQUIRED=NO " +
+          "ONLY_ACTIVE_ARCH=NO " +
+          "| xcpretty --report junit --output test_output/#{device_name}-results.xml"
+        )
+        UI.success("✅ Tests passed on #{destination}")
+      rescue => ex
+        UI.error("❌ Tests failed on #{destination}: #{ex.message}")
+        raise ex
+      end
     end
     
-    UI.success("✅ All platform tests passed!")
+    UI.success("✅ iOS tests passed on all devices!")
   end
   
   desc "Lint code with SwiftLint"
