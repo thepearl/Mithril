@@ -1,0 +1,88 @@
+name: Self-Hosted CI - iOS Only
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master, develop ]
+
+jobs:
+  ios-tests:
+    name: iOS Tests on Self-Hosted Runner
+    runs-on: self-hosted
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+    
+    - name: Clean Xcode Build Cache
+      run: |
+        rm -rf ~/Library/Developer/Xcode/DerivedData
+        rm -rf .build
+    
+    - name: Setup Ruby Environment
+      run: |
+        # Ensure we're using the system Ruby or rbenv Ruby
+        which ruby
+        ruby --version
+    
+    - name: Install/Update Bundler
+      run: |
+        gem install bundler --no-document
+        bundle install
+    
+    - name: Install SwiftLint (if not present)
+      run: |
+        if ! command -v swiftlint &> /dev/null; then
+          echo "Installing SwiftLint..."
+          brew install swiftlint
+        else
+          echo "SwiftLint already installed: $(swiftlint version)"
+        fi
+    
+    - name: Run SwiftLint
+      run: |
+        swiftlint lint --strict
+    
+    - name: Run iOS Tests via Fastlane
+      run: |
+        bundle exec fastlane ios ci
+      env:
+        FASTLANE_SKIP_UPDATE_CHECK: true
+        FASTLANE_HIDE_CHANGELOG: true
+        FASTLANE_DISABLE_COLORS: true
+    
+    - name: Upload Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: |
+          fastlane/report.xml
+          fastlane/test_output/
+        retention-days: 30
+
+  release:
+    name: Create Release
+    runs-on: self-hosted
+    needs: ios-tests
+    if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for proper tagging
+    
+    - name: Setup Ruby Environment
+      run: |
+        gem install bundler --no-document
+        bundle install
+    
+    - name: Create Release
+      run: |
+        bundle exec fastlane ios release
+      env:
+        FASTLANE_SKIP_UPDATE_CHECK: true
+        FASTLANE_HIDE_CHANGELOG: true
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
